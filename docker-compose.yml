@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  mobile-server:
+    build: .
+    container_name: hbillsoft-mobile
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    volumes:
+      # Persist SQLite database across container restarts
+      - hbillsoft-data:/app/.hbillsoft
+    environment:
+      - PYTHONUNBUFFERED=1
+
+volumes:
+  hbillsoft-data:
+    driver: local
