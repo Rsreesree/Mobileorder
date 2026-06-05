@@ -250,7 +250,64 @@ def create_flask_app():
     def api_dismiss(order_id):
         ok = delete_pending(order_id)
         return jsonify({'ok': ok})
- 
+
+    @app.route('/api/sync', methods=['POST'])
+    def api_sync():
+        """Receive menu, categories and settings from desktop POS and update local DB."""
+        try:
+            data       = request.get_json(force=True)
+            menu       = data.get('menu', [])
+            categories = data.get('categories', [])
+            settings   = data.get('settings', {})
+
+            conn = sqlite3.connect(DB_FILE)
+            cursor = conn.cursor()
+
+            # Sync menu items
+            if menu:
+                cursor.execute('DELETE FROM menu_items')
+                for i, item in enumerate(menu):
+                    cursor.execute(
+                        '''INSERT OR REPLACE INTO menu_items
+                           (id, name, price, category, image, image_data, sort_order)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                        (
+                            item.get('id'),
+                            item.get('name', ''),
+                            float(item.get('price', 0)),
+                            item.get('category', ''),
+                            item.get('image', '🍽️'),
+                            item.get('imageData', None),
+                            i
+                        )
+                    )
+
+            # Sync categories
+            if categories:
+                cursor.execute('DELETE FROM categories')
+                for i, cat in enumerate(categories):
+                    cursor.execute(
+                        '''INSERT OR REPLACE INTO categories (id, name, icon, sort_order)
+                           VALUES (?, ?, ?, ?)''',
+                        (cat.get('id'), cat.get('name', ''), cat.get('icon', '🍽️'), i)
+                    )
+
+            # Sync settings
+            if settings:
+                settings_json = json.dumps(settings, ensure_ascii=False)
+                cursor.execute(
+                    '''INSERT OR REPLACE INTO app_settings (id, data) VALUES (1, ?)''',
+                    (settings_json,)
+                )
+
+            conn.commit()
+            conn.close()
+            print(f'[MobileServer] Synced {len(menu)} menu items, {len(categories)} categories')
+            return jsonify({'ok': True, 'synced': {'menu': len(menu), 'categories': len(categories)}})
+        except Exception as e:
+            print(f'[MobileServer] /api/sync error: {e}')
+            return jsonify({'ok': False, 'error': str(e)}), 500
+
     return app
  
  
