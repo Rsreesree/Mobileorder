@@ -499,8 +499,7 @@ function renderOrderTypeFields() {
 function setOrderType(type) {
   orderType = type;
   selectedTable = null;
-  orderType = 'dinein';
-  renderFooter(); // re-render footer to show/hide relevant fields
+  renderCartDrawer();
 }
 
 // ── Place Order ─────────────────────────────────────────────────────────────
