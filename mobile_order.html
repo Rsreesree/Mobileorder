@@ -96,6 +96,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .total-row{display:flex;justify-content:space-between;font-size:0.88rem;color:var(--text2);margin-bottom:4px}
 .total-row.grand{font-size:1rem;font-weight:700;color:var(--text)}
  
+/* ── ORDER CONFIRMED OVERLAY ── */
+#order-confirmed-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:2rem}
+#order-confirmed-overlay.show{display:flex}
+.confirmed-icon{font-size:4rem;margin-bottom:1rem;animation:pop 0.4s ease}
+.confirmed-title{font-size:1.6rem;font-weight:700;color:#fff;margin-bottom:0.5rem}
+.confirmed-sub{font-size:0.95rem;color:rgba(255,255,255,0.8);margin-bottom:1.5rem}
+@keyframes pop{0%{transform:scale(0)}70%{transform:scale(1.2)}100%{transform:scale(1)}}
+
 /* ── ORDER TYPE SELECTOR ── */
 .order-type-wrap{padding:14px 16px 0;border-top:1px solid var(--border)}
 .order-type-wrap h3{font-size:0.82rem;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em}
@@ -578,9 +586,22 @@ try {
   window._socket = socket;
   socket.on('connect', () => console.log('[Socket] Connected to server'));
   socket.on('disconnect', () => console.log('[Socket] Disconnected'));
+  socket.on('order_confirmed', (data) => {
+    console.log('[Socket] Order confirmed:', data);
+    document.getElementById('order-confirmed-overlay').classList.add('show');
+  });
 } catch(e) {
   console.log('[Socket] Not available:', e);
 }
 </script>
+  <div id="order-confirmed-overlay">
+    <div class="confirmed-icon">✅</div>
+    <div class="confirmed-title">Order Confirmed!</div>
+    <div class="confirmed-sub">Your order is being prepared 🍽️</div>
+    <button onclick="document.getElementById('order-confirmed-overlay').classList.remove('show')" 
+      style="padding:12px 32px;border-radius:50px;border:none;background:#fff;color:#333;font-weight:700;font-size:1rem;cursor:pointer">
+      OK
+    </button>
+  </div>
 </body>
 </html>
