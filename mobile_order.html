@@ -96,6 +96,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .total-row{display:flex;justify-content:space-between;font-size:0.88rem;color:var(--text2);margin-bottom:4px}
 .total-row.grand{font-size:1rem;font-weight:700;color:var(--text)}
  
+/* ── ORDER TYPE SELECTOR ── */
+.order-type-wrap{padding:14px 16px 0;border-top:1px solid var(--border)}
+.order-type-wrap h3{font-size:0.82rem;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em}
+.order-type-btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
+.ot-btn{padding:10px 6px;border-radius:10px;border:2px solid var(--border);background:var(--bg3);color:var(--text2);font-size:0.82rem;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;transition:all 0.2s}
+.ot-btn .ot-icon{font-size:1.4rem}
+.ot-btn:active{transform:scale(0.97)}
+.ot-btn.selected{border-color:var(--accent);background:rgba(255,107,53,0.12);color:var(--accent)}
+
 /* ── CUSTOMER FORM ── */
 .form-section{padding:14px 16px;border-top:1px solid var(--border)}
 .form-section h3{font-size:0.82rem;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em}
@@ -132,6 +141,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
  
@@ -190,6 +200,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 let menu = [], categories = [], cart = [], settings = {};
 let currentCat = 'all';
 let selectedTable = null;   // null = takeaway, number = table number
+let orderType = 'dinein';   // 'dinein' | 'takeaway' | 'delivery'
 let tableCount = 10;
 const curr = () => settings.currency || '₹';
  
@@ -421,21 +432,27 @@ function renderCartDrawer() {
 
   footer.style.display = 'block';
   footer.innerHTML = `
+    <div class="order-type-wrap">
+      <h3>Order Type</h3>
+      <div class="order-type-btns">
+        <button class="ot-btn${orderType==='dinein'?' selected':''}" onclick="setOrderType('dinein')">
+          <span class="ot-icon">🍽️</span>Dine In
+        </button>
+        <button class="ot-btn${orderType==='takeaway'?' selected':''}" onclick="setOrderType('takeaway')">
+          <span class="ot-icon">🛍️</span>Takeaway
+        </button>
+        <button class="ot-btn${orderType==='delivery'?' selected':''}" onclick="setOrderType('delivery')">
+          <span class="ot-icon">🚚</span>Delivery
+        </button>
+      </div>
+    </div>
     <div class="form-section" style="padding:0;border-top:none">
       <h3>Your Details</h3>
       <div class="form-field" style="margin-bottom:10px">
         <label>Your Name</label>
         <input id="cust-name" type="text" placeholder="e.g. Rahul" maxlength="50">
       </div>
-      <div class="table-picker-wrap">
-        <span class="table-picker-label">Select Table</span>
-        <div class="table-grid-picker" id="table-grid-picker">
-          ${Array.from({length: tableCount}, (_, i) => i + 1).map(n => `
-            <button class="tbl-btn${selectedTable === n ? ' selected' : ''}" onclick="pickTable(${n})">T${n}</button>
-          `).join('')}
-          <button class="tbl-btn tbl-takeaway${selectedTable === 0 ? ' selected' : ''}" onclick="pickTable(0)">🛍️ Takeaway</button>
-        </div>
-      </div>
+      ${renderOrderTypeFields()}
       <div class="form-field" style="margin-bottom:14px">
         <label>Special Note (optional)</label>
         <textarea id="cust-note" rows="2" placeholder="e.g. No spice, extra sauce…"></textarea>
@@ -455,20 +472,68 @@ function pickTable(n) {
   event.currentTarget.classList.add('selected');
 }
 
+// ── Order Type ──────────────────────────────────────────────────────────────
+function renderOrderTypeFields() {
+  if (orderType === 'dinein') {
+    const btns = Array.from({length: tableCount}, (_, i) => i + 1)
+      .map(n => `<button class="tbl-btn${selectedTable === n ? ' selected' : ''}" onclick="pickTable(${n})">T${n}</button>`)
+      .join('');
+    return `<div class="table-picker-wrap">
+      <span class="table-picker-label">Select Table</span>
+      <div class="table-grid-picker" id="table-grid-picker">${btns}</div>
+    </div>`;
+  }
+  if (orderType === 'delivery') {
+    return `<div class="form-field" style="margin-bottom:10px">
+      <label>Delivery Address</label>
+      <textarea id="cust-address" rows="2" placeholder="e.g. 12, Main Street, Chennai…"></textarea>
+    </div>
+    <div class="form-field" style="margin-bottom:10px">
+      <label>Contact Number</label>
+      <input id="cust-contact" type="tel" placeholder="e.g. 9876543210" maxlength="15">
+    </div>`;
+  }
+  return '';
+}
+
+function setOrderType(type) {
+  orderType = type;
+  selectedTable = null;
+  orderType = 'dinein';
+  renderFooter(); // re-render footer to show/hide relevant fields
+}
+
 // ── Place Order ─────────────────────────────────────────────────────────────
 async function placeOrder() {
   if (!cart.length) return;
-  if (selectedTable === null) {
-    alert('Please select a table or Takeaway before placing your order.');
+
+  // Validate based on order type
+  if (orderType === 'dinein' && selectedTable === null) {
+    alert('Please select a table for Dine In.');
     return;
   }
+  if (orderType === 'delivery') {
+    const addr = (document.getElementById('cust-address')?.value || '').trim();
+    const contact = (document.getElementById('cust-contact')?.value || '').trim();
+    if (!addr) { alert('Please enter a delivery address.'); return; }
+    if (!contact) { alert('Please enter a contact number.'); return; }
+  }
+
   const btn = document.getElementById('place-btn');
   btn.disabled = true;
   btn.textContent = '⏳ Sending…';
   const customer = (document.getElementById('cust-name')?.value || '').trim();
-  const table_no = selectedTable === 0 ? 'takeaway' : String(selectedTable);
   const note     = (document.getElementById('cust-note')?.value || '').trim();
   const items    = cart.map(i => ({ id: i.id, name: i.name, price: i.price, qty: i.qty }));
+
+  // Build table_no based on order type
+  let table_no = 'takeaway';
+  if (orderType === 'dinein') table_no = String(selectedTable);
+  if (orderType === 'delivery') {
+    const addr    = (document.getElementById('cust-address')?.value || '').trim();
+    const contact = (document.getElementById('cust-contact')?.value || '').trim();
+    table_no = `delivery | ${contact} | ${addr}`;
+  }
 
   try {
     const res = await fetch('/api/order', {
@@ -507,6 +572,16 @@ function resetApp() {
  
 // ── Boot ────────────────────────────────────────────────────────────────────
 loadData();
+
+// ── Socket.IO real-time connection ──────────────────────────────────────────
+try {
+  const socket = io();
+  window._socket = socket;
+  socket.on('connect', () => console.log('[Socket] Connected to server'));
+  socket.on('disconnect', () => console.log('[Socket] Disconnected'));
+} catch(e) {
+  console.log('[Socket] Not available:', e);
+}
 </script>
 </body>
 </html>

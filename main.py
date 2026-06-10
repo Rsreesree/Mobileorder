@@ -467,6 +467,71 @@ def save_menu_to_db(menu: list) -> dict:
     except Exception as e:
         return {'ok': False, 'error': str(e)}
  
+def sync_to_ec2(menu=None, categories=None, settings=None):
+    """Push menu/categories/settings to EC2 mobile server in background thread."""
+    def _push():
+        try:
+            cfg = load_config_from_file()
+            ec2_url = cfg.get('ec2MobileUrl', '').rstrip('/')
+            if not ec2_url:
+                return  # EC2 URL not configured, skip silently
+            import urllib.request
+            payload = {}
+            if menu is not None:
+                payload['menu'] = menu
+            if categories is not None:
+                payload['categories'] = categories
+            if settings is not None:
+                payload['settings'] = settings
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(
+                f'{ec2_url}/api/sync',
+                data=data,
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                result = json.loads(r.read().decode())
+                print(f'[EC2Sync] {result}')
+        except Exception as e:
+            print(f'[EC2Sync] Failed: {e}')
+    import threading
+    threading.Thread(target=_push, daemon=True, name='EC2SyncThread').start()
+
+def start_ec2_socket_listener(on_new_order):
+    """Connect to EC2 Socket.IO server and listen for new orders."""
+    def _listen():
+        try:
+            import socketio as sio_client
+            cfg = load_config_from_file()
+            ec2_url = cfg.get('ec2MobileUrl', '').rstrip('/')
+            if not ec2_url:
+                print('[SocketListener] EC2 URL not configured, skipping.')
+                return
+            sio = sio_client.Client()
+
+            @sio.on('new_order')
+            def on_order(data):
+                print(f'[SocketListener] New order received: {data}')
+                on_new_order(data)
+
+            @sio.on('connect')
+            def on_connect():
+                print(f'[SocketListener] Connected to EC2: {ec2_url}')
+
+            @sio.on('disconnect')
+            def on_disconnect():
+                print('[SocketListener] Disconnected from EC2')
+
+            sio.connect(ec2_url, wait_timeout=10)
+            sio.wait()
+        except Exception as e:
+            print(f'[SocketListener] Error: {e}')
+
+    import threading
+    t = threading.Thread(target=_listen, daemon=True, name='EC2SocketListener')
+    t.start()
+
 def load_menu_from_db() -> dict:
     """Load all menu items from the DB."""
     try:
@@ -1200,7 +1265,10 @@ class Api:
     def save_settings(self, settings: dict) -> dict:
         """Persist settings to SQLite (and config.json for legacy compat)."""
         save_config_to_file(settings)          # keep config.json in sync
-        return save_settings_to_db(settings)
+        result = save_settings_to_db(settings)
+        if result.get('ok'):
+            sync_to_ec2(settings=settings)
+        return result
  
     def load_settings(self) -> dict:
         """Load settings from SQLite; fall back to config.json."""
@@ -1224,7 +1292,10 @@ class Api:
     # --- Menu & Categories SQLite API ---
     def save_menu(self, menu: list) -> dict:
         """Persist full menu to SQLite."""
-        return save_menu_to_db(menu)
+        result = save_menu_to_db(menu)
+        if result.get('ok'):
+            sync_to_ec2(menu=menu)
+        return result
  
     def load_menu(self) -> dict:
         """Load full menu from SQLite."""
@@ -1232,7 +1303,10 @@ class Api:
  
     def save_categories(self, categories: list) -> dict:
         """Persist full categories list to SQLite."""
-        return save_categories_to_db(categories)
+        result = save_categories_to_db(categories)
+        if result.get('ok'):
+            sync_to_ec2(categories=categories)
+        return result
  
     def load_categories(self) -> dict:
         """Load full categories list from SQLite."""
@@ -1506,7 +1580,21 @@ try:
     mobile_server.start_mobile_server()
 except Exception as e:
     print(f"Failed to start mobile server: {e}")
- 
+
+# ── Start EC2 Socket.IO listener for real-time order notifications ────────────
+def on_new_order_from_ec2(order_data):
+    """Called when a new order arrives from EC2 via Socket.IO."""
+    try:
+        if window:
+            window.evaluate_js(f"window.onNewMobileOrder && window.onNewMobileOrder({json.dumps(order_data)})")
+    except Exception as e:
+        print(f'[SocketListener] Failed to notify UI: {e}')
+
+try:
+    start_ec2_socket_listener(on_new_order_from_ec2)
+except Exception as e:
+    print(f'Failed to start EC2 socket listener: {e}')
+
 window = webview.create_window(
     title='HBILLSOFT',
     url='file:///' + html_file.replace('\\', '/'),

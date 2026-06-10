@@ -12,6 +12,7 @@ import datetime
 import sqlite3
 import socket
 import threading
+from flask_socketio import SocketIO, emit
  
 # ── Path helpers (same pattern as main.py) ───────────────────────────────────
 _APP_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -173,6 +174,8 @@ def create_flask_app():
         return None
  
     app = Flask(__name__)
+    app.config['SECRET_KEY'] = 'hbillsoft-secret'
+    socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
  
     @app.after_request
     def add_cors(response):
@@ -235,6 +238,15 @@ def create_flask_app():
             order_id = str(uuid.uuid4())[:8].upper()
             ok = save_pending_order(order_id, customer, table_no, items, note)
             if ok:
+                # Emit real-time event to all connected POS clients
+                socketio.emit('new_order', {
+                    'order_id':   order_id,
+                    'customer':   customer,
+                    'table_no':   table_no,
+                    'items':      items,
+                    'note':       note,
+                    'received_at': datetime.datetime.now().isoformat()
+                })
                 return jsonify({'ok': True, 'order_id': order_id})
             else:
                 return jsonify({'ok': False, 'error': 'Database error'}), 500
@@ -319,16 +331,17 @@ def start_mobile_server():
     """
     init_pending_table()
  
-    flask_app = create_flask_app()
-    if flask_app is None:
+    result = create_flask_app()
+    if result is None:
         return  # Flask not available — skip silently
+    flask_app, socketio = result
  
     import logging
     log = logging.getLogger('werkzeug')
     log.setLevel(logging.ERROR)   # suppress Flask request logs in console
  
     def _run():
-        flask_app.run(host='0.0.0.0', port=MOBILE_PORT, debug=False, use_reloader=False)
+        socketio.run(flask_app, host='0.0.0.0', port=MOBILE_PORT, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
  
     t = threading.Thread(target=_run, daemon=True, name='MobileOrderServer')
     t.start()
