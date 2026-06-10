@@ -263,6 +263,15 @@ def create_flask_app():
         ok = delete_pending(order_id)
         return jsonify({'ok': ok})
 
+    @app.route('/api/confirm/<order_id>', methods=['POST'])
+    def api_confirm(order_id):
+        """Staff confirmed the order — notify the customer via Socket.IO."""
+        try:
+            socketio.emit('order_confirmed', {'order_id': order_id})
+            return jsonify({'ok': True})
+        except Exception as e:
+            return jsonify({'ok': False, 'error': str(e)}), 500
+
     @app.route('/api/sync', methods=['POST'])
     def api_sync():
         """Receive menu, categories and settings from desktop POS and update local DB."""
@@ -320,7 +329,7 @@ def create_flask_app():
             print(f'[MobileServer] /api/sync error: {e}')
             return jsonify({'ok': False, 'error': str(e)}), 500
 
-    return app
+    return app, socketio
  
  
 # ── Public start function ─────────────────────────────────────────────────────
